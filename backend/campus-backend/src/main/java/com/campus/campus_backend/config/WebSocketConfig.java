@@ -1,6 +1,7 @@
 package com.campus.campus_backend.config;
 
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.*;
 
@@ -8,29 +9,28 @@ import org.springframework.web.socket.config.annotation.*;
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    @Override
-    public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // STOMP endpoint with SockJS fallback
-        registry.addEndpoint("/ws-chat")
-                .setAllowedOriginPatterns(
-                        "http://localhost:5173",
-                        "http://localhost:5174",
-                        "http://localhost:3000"
-                )
-                .withSockJS();
+    private final WebSocketAuthChannelInterceptor authInterceptor;
 
-        registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns(
-                        "http://localhost:5173",
-                        "http://localhost:5174",
-                        "http://localhost:3000"
-                )
-                .withSockJS(); // SockJS fallback for older browsers
+    public WebSocketConfig(WebSocketAuthChannelInterceptor authInterceptor) {
+        this.authInterceptor = authInterceptor;
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(authInterceptor);
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic");       // server → client
-        registry.setApplicationDestinationPrefixes("/app"); // client → server
+        registry.enableSimpleBroker("/queue", "/topic");
+        registry.setApplicationDestinationPrefixes("/app");
+        registry.setUserDestinationPrefix("/user");
+    }
+
+    @Override
+    public void registerStompEndpoints(StompEndpointRegistry registry) {
+        registry.addEndpoint("/ws")
+                .setAllowedOriginPatterns("*")
+                .withSockJS();
     }
 }

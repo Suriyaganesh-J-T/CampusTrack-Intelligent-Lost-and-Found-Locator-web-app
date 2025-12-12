@@ -1,0 +1,57 @@
+import { useState } from "react";
+import api from "../../services/api";
+import toast from "react-hot-toast";
+
+export default function ChangePasswordTab() {
+    const [form, setForm] = useState({
+        oldPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+    });
+
+    const submit = () => {
+        if (form.newPassword !== form.confirmPassword)
+            return toast.error("Passwords do not match");
+
+        api.post("/auth/change-password", form)
+            .then(() => toast.success("Password updated"))
+            .catch(() => toast.error("Failed to change password"));
+    };
+
+    return (
+        <div className="space-y-4">
+            <input
+                type="password"
+                className="border p-2 w-full rounded"
+                placeholder="Old Password"
+                value={form.oldPassword}
+                onChange={(e) => setForm({ ...form, oldPassword: e.target.value })}
+            />
+
+            <input
+                type="password"
+                className="border p-2 w-full rounded"
+                placeholder="New Password"
+                value={form.newPassword}
+                onChange={(e) => setForm({ ...form, newPassword: e.target.value })}
+            />
+
+            <input
+                type="password"
+                className="border p-2 w-full rounded"
+                placeholder="Confirm New Password"
+                value={form.confirmPassword}
+                onChange={(e) =>
+                    setForm({ ...form, confirmPassword: e.target.value })
+                }
+            />
+
+            <button
+                onClick={submit}
+                className="bg-sky-600 text-white px-4 py-2 rounded"
+            >
+                Update Password
+            </button>
+        </div>
+    );
+}

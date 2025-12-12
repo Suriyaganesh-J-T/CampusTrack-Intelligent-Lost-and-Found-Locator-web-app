@@ -102,7 +102,17 @@
             <version>6.0.0</version>
             <scope>provided</scope>
         </dependency>
-
+        <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+            <version>3.0.2</version> <!-- Use the version compatible with your Spring Boot/Jakarta EE environment -->
+        </dependency>
+        <!-- Hibernate Validator (Reference Implementation) -->
+        <dependency>
+            <groupId>org.hibernate.validator</groupId>
+            <artifactId>hibernate-validator</artifactId>
+            <version>8.0.1.Final</version> <!-- Use the version compatible with your Spring Boot/Jakarta EE environment -->
+        </dependency>
 
     </dependencies>
 

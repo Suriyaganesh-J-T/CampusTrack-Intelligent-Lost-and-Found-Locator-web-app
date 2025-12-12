@@ -1,8 +1,6 @@
-// File: src/hooks/useAuth.js
-
+// src/hooks/useAuth.js
 import { useState, useEffect } from "react";
 
-// Helper function to decode JWT
 const parseJwt = (token) => {
     try {
         return JSON.parse(atob(token.split(".")[1]));
@@ -13,31 +11,36 @@ const parseJwt = (token) => {
 
 const getAuthData = () => {
     const token = localStorage.getItem("jwt");
+
     if (!token) {
-        return { isLoggedIn: false, userId: null, userName: null, userRole: null };
+        return {
+            isLoggedIn: false,
+            userId: null,
+            email: null,
+            role: null,
+        };
     }
+
     const decoded = parseJwt(token);
+
     return {
         isLoggedIn: true,
-        userId: decoded?.userId || null,
-        userName: decoded?.sub || decoded?.email || null, // Assuming subject is email/name
-        userRole: decoded?.role || null,
+        userId: decoded?.sub || decoded?.userId || null,
+        email: decoded?.email || null,
+        role: decoded?.role || null,
     };
 };
 
 export default function useAuth() {
-    const [authData, setAuthData] = useState(getAuthData());
+    const [auth, setAuth] = useState(getAuthData());
 
     useEffect(() => {
-        const handler = () => setAuthData(getAuthData());
-
-        // Listen for changes in localStorage (login/logout events)
-        window.addEventListener("storage", handler);
-        return () => window.removeEventListener("storage", handler);
+        const update = () => setAuth(getAuthData());
+        window.addEventListener("storage", update);
+        return () => window.removeEventListener("storage", update);
     }, []);
 
-    // Function to manually refresh data if needed (e.g., after login)
-    const refreshAuthData = () => setAuthData(getAuthData());
+    const refreshAuth = () => setAuth(getAuthData());
 
-    return { ...authData, refreshAuthData };
+    return { ...auth, refreshAuth };
 }

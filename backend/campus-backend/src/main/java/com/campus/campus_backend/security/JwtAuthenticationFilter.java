@@ -1,13 +1,15 @@
 package com.campus.campus_backend.security;
 
+import com.campus.campus_backend.model.Role;
+import com.campus.campus_backend.model.User;
+import com.campus.campus_backend.repository.UserRepository;
 import io.jsonwebtoken.Claims;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.*;
+import jakarta.servlet.http.*;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.util.StringUtils;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.io.IOException;
@@ -16,28 +18,23 @@ import java.util.Collections;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
+    private final UserRepository userRepository;
 
-    public JwtAuthenticationFilter(JwtUtil jwtUtil) {
+    public JwtAuthenticationFilter(JwtUtil jwtUtil, UserRepository userRepository) {
         this.jwtUtil = jwtUtil;
+        this.userRepository = userRepository;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
-                                    FilterChain filterChain)
+                                    FilterChain chain)
             throws ServletException, IOException {
 
         String path = request.getRequestURI();
-
-        // Allow unauthenticated requests for auth, uploads, and WebSocket handshake
-        if ("OPTIONS".equalsIgnoreCase(request.getMethod()) ||
-                path.startsWith("/api/auth") ||
-                path.startsWith("/uploads") ||
-                path.equals("/") ||
-                path.equals("/favicon.ico") ||
-                path.startsWith("/ws") ||
-                path.startsWith("/ws-chat")) {
-            filterChain.doFilter(request, response);
+        if (path.startsWith("/api/auth") || path.startsWith("/uploads") || path.startsWith("/ws")
+                || "OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            chain.doFilter(request, response);
             return;
         }
 
@@ -48,23 +45,32 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             try {
                 Claims claims = jwtUtil.validateToken(token).getBody();
-                String email = claims.getSubject();
+
+                // 🧨 FIX: Extract subject, NOT claims["userId"]
+                String userId = claims.getSubject();
                 String role = claims.get("role", String.class);
 
-                UsernamePasswordAuthenticationToken auth =
+                User user = userRepository.findById(userId)
+                        .orElseThrow(() -> new RuntimeException("User not found"));
+
+                UserDetailsImpl userDetails = new UserDetailsImpl(user);
+
+                UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
-                                email, null,
-                                Collections.singleton(() -> "ROLE_" + role)
+                                userDetails,
+                                null,
+                                Collections.singletonList(
+                                        new SimpleGrantedAuthority("ROLE_" + role)
+                                )
                         );
 
-                SecurityContextHolder.getContext().setAuthentication(auth);
+                SecurityContextHolder.getContext().setAuthentication(authentication);
 
             } catch (Exception ex) {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid JWT");
-                return;
+                System.out.println("JWT validation failed: " + ex.getMessage());
             }
         }
 
-        filterChain.doFilter(request, response);
+        chain.doFilter(request, response);
     }
 }

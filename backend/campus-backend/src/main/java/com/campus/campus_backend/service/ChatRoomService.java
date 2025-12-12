@@ -1,50 +1,65 @@
-// inside ChatRoomService class (add this method)
 package com.campus.campus_backend.service;
 
 import com.campus.campus_backend.model.ChatRoom;
-import com.campus.campus_backend.model.ChatRequest;
+import com.campus.campus_backend.model.MatchRecord;
+import com.campus.campus_backend.model.User;
 import com.campus.campus_backend.repository.ChatRoomRepository;
-import com.campus.campus_backend.repository.ChatRequestRepository;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+import com.campus.campus_backend.repository.MatchRecordRepository;
+import com.campus.campus_backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 public class ChatRoomService {
 
     private final ChatRoomRepository chatRoomRepository;
-    private final ChatRequestRepository chatRequestRepository;
-    private final SimpMessagingTemplate template;
+    private final MatchRecordRepository matchRecordRepository;
+    private final UserRepository userRepository;
 
     public ChatRoomService(ChatRoomRepository chatRoomRepository,
-                           ChatRequestRepository chatRequestRepository,
-                           SimpMessagingTemplate template) {
+                           MatchRecordRepository matchRecordRepository,
+                           UserRepository userRepository) {
         this.chatRoomRepository = chatRoomRepository;
-        this.chatRequestRepository = chatRequestRepository;
-        this.template = template;
+        this.matchRecordRepository = matchRecordRepository;
+        this.userRepository = userRepository;
+    }
+
+    public List<ChatRoom> getChatRoomsForUser(String userId) {
+        return chatRoomRepository.findByUser1_UserIdOrUser2_UserId(userId, userId);
+    }
+
+    // 🔥 NEW METHOD — used to attach chatId in MatchRecordDTO
+    public Long getChatRoomIdForMatch(Long matchId) {
+        ChatRoom room = chatRoomRepository.findByMatchRecordId(matchId);
+        return room != null ? room.getId() : null;
     }
 
     @Transactional
-    public ChatRoom createRoomFromRequest(Long requestId) {
-        ChatRequest req = chatRequestRepository.findById(requestId)
-                .orElseThrow(() -> new IllegalArgumentException("ChatRequest not found: " + requestId));
+    public ChatRoom createRoom(Long matchRecordId, String user1Id, String user2Id) {
+        MatchRecord match = matchRecordRepository.findById(matchRecordId)
+                .orElseThrow(() -> new RuntimeException("Match record not found"));
+
+        User user1 = userRepository.findById(user1Id).orElseThrow(() -> new RuntimeException("User1 not found"));
+        User user2 = userRepository.findById(user2Id).orElseThrow(() -> new RuntimeException("User2 not found"));
+
+        ChatRoom existing = chatRoomRepository.findByMatchRecordId(match.getId());
+        if (existing != null) return existing;
 
         ChatRoom room = new ChatRoom();
-        room.setMatch(req.getMatch());
-        room.setUser1(req.getReceiver()); // assume receiver = loser user1
-        room.setUser2(req.getSender());   // sender = founder
+        room.setMatchRecord(match);
+        room.setUser1(user1);
+        room.setUser2(user2);
         room.setStatus("ACTIVE");
+        room.setCreatedAt(LocalDateTime.now());
 
-        ChatRoom saved = chatRoomRepository.save(room);
+        return chatRoomRepository.save(room);
+    }
 
-        // notify both users about roomId (optional)
-        var dto = new java.util.HashMap<String, Object>();
-        dto.put("roomId", saved.getId());
-        dto.put("matchId", req.getMatch().getId());
-
-        template.convertAndSend("/topic/match/status/" + req.getSender().getId(), dto);
-        template.convertAndSend("/topic/match/status/" + req.getReceiver().getId(), dto);
-
-        return saved;
+    public ChatRoom getRoomById(Long roomId) {
+        return chatRoomRepository.findById(roomId)
+                .orElseThrow(() -> new RuntimeException("Chat Room not found: " + roomId));
     }
 }

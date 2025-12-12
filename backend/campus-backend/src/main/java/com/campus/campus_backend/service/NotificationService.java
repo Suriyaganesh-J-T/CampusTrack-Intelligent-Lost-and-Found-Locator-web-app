@@ -1,32 +1,45 @@
 package com.campus.campus_backend.service;
 
-import com.campus.campus_backend.model.ChatRequest;
 import com.campus.campus_backend.model.MatchRecord;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.campus.campus_backend.model.MatchRequest;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
 public class NotificationService {
 
-    @Autowired
-    private SimpMessagingTemplate messagingTemplate;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public void sendNewRequest(ChatRequest request) {
-        Long receiverId = request.getReceiver().getId();
+    public NotificationService(SimpMessagingTemplate messagingTemplate) {
+        this.messagingTemplate = messagingTemplate;
+    }
 
-        messagingTemplate.convertAndSend(
-                "/topic/match/request/" + receiverId,
-                request
+    // Existing: new auto-match created
+    public void notifyNewMatch(String userId, MatchRecord matchRecord) {
+        if (userId == null) return;
+        messagingTemplate.convertAndSendToUser(
+                userId,
+                "/queue/match/new",
+                matchRecord
         );
     }
 
-    public void sendStatusUpdate(ChatRequest request) {
-        Long senderId = request.getSender().getId();
+    // 🔥 NEW: any time a match request is sent / accepted / declined
+    public void notifyRequestUpdated(MatchRequest request) {
+        if (request == null || request.getMatch() == null) return;
 
-        messagingTemplate.convertAndSend(
-                "/topic/match/status/" + senderId,
-                request
+        Long matchId = request.getMatch().getId();
+
+        // We just send the match ID as payload – frontend only uses it as a signal.
+        messagingTemplate.convertAndSendToUser(
+                request.getSender().getUserId(),
+                "/queue/match/request",
+                matchId
+        );
+        messagingTemplate.convertAndSendToUser(
+                request.getReceiver().getUserId(),
+                "/queue/match/request",
+                matchId
         );
     }
 }

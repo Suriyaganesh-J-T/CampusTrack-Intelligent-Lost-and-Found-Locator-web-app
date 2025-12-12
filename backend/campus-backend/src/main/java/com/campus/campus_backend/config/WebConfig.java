@@ -10,17 +10,25 @@ import java.nio.file.Paths;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    // Only needed if you want to compute uploads absolute path dynamically.
-    private final Path uploadsLocation = Paths.get("uploads"); // relative to app working dir
+    private static final String UPLOAD_DIR = "uploads";
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // Map URL /uploads/** to filesystem directory ./uploads/
-        // "file:" prefix is required to serve files from filesystem.
-        String uploadsAbsolute = uploadsLocation.toAbsolutePath().toString() + "/";
 
+        // Resolve absolute path to uploads folder
+        Path uploadPath = Paths.get(UPLOAD_DIR).toAbsolutePath();
+        String uploadsAbsolute = uploadPath.toString();
+
+        // ⭐ Serve uploaded profile images & other uploads
         registry.addResourceHandler("/uploads/**")
-                .addResourceLocations("file:" + uploadsAbsolute)
-                .setCachePeriod(0); // disable caching in dev, remove or increase in production
+                .addResourceLocations("file:" + uploadsAbsolute + "/")
+                .setCachePeriod(0);
+
+        // Serve frontend assets (static files)
+        registry.addResourceHandler("/**")
+                .addResourceLocations(
+                        "classpath:/static/",
+                        "classpath:/public/"
+                );
     }
 }

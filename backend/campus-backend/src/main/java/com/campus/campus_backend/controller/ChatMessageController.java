@@ -1,9 +1,12 @@
 package com.campus.campus_backend.controller;
 
 import com.campus.campus_backend.model.ChatMessage;
+import com.campus.campus_backend.security.UserDetailsImpl;
 import com.campus.campus_backend.service.ChatMessageService;
-import com.campus.campus_backend.security.JwtUtil;
+import lombok.Getter;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -17,54 +20,55 @@ public class ChatMessageController {
     @Autowired
     private ChatMessageService chatMessageService;
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
-    public static class MessageDTO {
+    @Getter
+    public static class MessageResponseDTO {
         private Long id;
-        private Long senderId;
+        private String senderId;
         private String senderName;
         private String content;
-        private LocalDateTime createdAt;
+        private LocalDateTime sentAt;
 
-        public MessageDTO(ChatMessage msg) {
+        public MessageResponseDTO(ChatMessage msg) {
             this.id = msg.getId();
-            this.senderId = msg.getSender().getId();
+            this.senderId = msg.getSender().getUserId();
             this.senderName = msg.getSender().getName();
             this.content = msg.getContent();
-            this.createdAt = msg.getCreatedAt();
+            this.sentAt = msg.getSentAt();
         }
-
-        public Long getId() { return id; }
-        public Long getSenderId() { return senderId; }
-        public String getSenderName() { return senderName; }
-        public String getContent() { return content; }
-        public LocalDateTime getCreatedAt() { return createdAt; }
     }
 
     @GetMapping("/room/{roomId}/messages")
-    public List<MessageDTO> getMessages(@PathVariable Long roomId,
-                                        @RequestHeader("Authorization") String token) {
+    public ResponseEntity<List<MessageResponseDTO>> getMessages(
+            @PathVariable Long roomId,
+            @AuthenticationPrincipal UserDetailsImpl userDetails
+    ) {
+        if (userDetails == null) {
+            return ResponseEntity.status(401).build();
+        }
 
-        String jwt = token.replace("Bearer ", "");
-        Long userId = jwtUtil.validateTokenAndGetUserId(jwt); // ensures token valid
+        List<MessageResponseDTO> messages = chatMessageService.getMessages(roomId)
+                .stream()
+                .map(MessageResponseDTO::new)
+                .collect(Collectors.toList());
 
-        List<ChatMessage> messages = chatMessageService.getMessages(roomId);
-        return messages.stream().map(MessageDTO::new).collect(Collectors.toList());
+        return ResponseEntity.ok(messages);
     }
 
     @PostMapping("/room/{roomId}/send")
-    public MessageDTO sendMessage(@PathVariable Long roomId,
-                                  @RequestHeader("Authorization") String token,
-                                  @RequestBody MessageRequest request) {
+    public ResponseEntity<MessageResponseDTO> sendMessage(
+            @PathVariable Long roomId,
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @RequestBody MessageRequest request
+    ) {
+        if (userDetails == null || userDetails.getUser() == null) {
+            return ResponseEntity.status(401).build();
+        }
 
-        String jwt = token.replace("Bearer ", "");
-        Long senderId = jwtUtil.validateTokenAndGetUserId(jwt);
+        String senderId = userDetails.getUser().getUserId();
+        ChatMessage msg = chatMessageService.sendMessage(roomId, senderId, request.getMessage());
 
-        // Save message using senderId + content
-        ChatMessage msg = chatMessageService.saveMessage(roomId, senderId, request.getMessage());
 
-        return new MessageDTO(msg);
+        return ResponseEntity.ok(new MessageResponseDTO(msg));
     }
 
     static class MessageRequest {

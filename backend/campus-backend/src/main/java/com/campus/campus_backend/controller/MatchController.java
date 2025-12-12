@@ -1,70 +1,54 @@
 package com.campus.campus_backend.controller;
 
-import com.campus.campus_backend.model.ChatRequest;
-import com.campus.campus_backend.model.ChatRoom;
+import com.campus.campus_backend.dto.MatchRecordDTO;
 import com.campus.campus_backend.model.MatchRecord;
+import com.campus.campus_backend.service.ChatRoomService;
 import com.campus.campus_backend.service.MatchRequestService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
+import com.campus.campus_backend.repository.MatchRecordRepository;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.Principal;
 import java.util.List;
 
-@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
 @RestController
 @RequestMapping("/api/match")
 public class MatchController {
 
-    @Autowired
-    private MatchRequestService matchRequestService;
+    private final MatchRecordRepository matchRecordRepository;
+    private final MatchRequestService matchRequestService;
+    private final ChatRoomService chatRoomService;
 
-    // -------------------------------
-    // Send match request
-    // -------------------------------
-    @PostMapping("/request")
-    public ResponseEntity<ChatRequest> sendRequest(
-            @RequestParam Long matchId,
-            @RequestParam Long senderId,
-            @RequestParam Long receiverId
-    ) {
-        ChatRequest request = matchRequestService.sendRequest(matchId, senderId, receiverId);
-        return ResponseEntity.ok(request);
+    public MatchController(MatchRecordRepository matchRecordRepository,
+                           MatchRequestService matchRequestService,
+                           ChatRoomService chatRoomService) {
+        this.matchRecordRepository = matchRecordRepository;
+        this.matchRequestService = matchRequestService;
+        this.chatRoomService = chatRoomService;
     }
 
-    // -------------------------------
-    // Accept a match request
-    // -------------------------------
-    @PostMapping("/accept")
-    public ResponseEntity<ChatRoom> acceptRequest(@RequestParam Long requestId) {
-        ChatRoom chatRoom = matchRequestService.acceptRequest(requestId);
-        return ResponseEntity.ok(chatRoom);
-    }
-
-    // -------------------------------
-    // Decline a match request
-    // -------------------------------
-    @PostMapping("/decline")
-    public ResponseEntity<String> declineRequest(@RequestParam Long requestId) {
-        matchRequestService.declineRequest(requestId);
-        return ResponseEntity.ok("Request declined successfully");
-    }
-
-    // -------------------------------
-    // List pending requests for a user (loser)
-    // -------------------------------
-    @GetMapping("/pending")
-    public ResponseEntity<List<ChatRequest>> getPendingRequests(@RequestParam Long userId) {
-        List<ChatRequest> pending = matchRequestService.getPendingRequests(userId);
-        return ResponseEntity.ok(pending);
-    }
-
-    // -------------------------------
-    // Get matches for a post
-    // -------------------------------
     @GetMapping("/for-post/{postId}")
-    public ResponseEntity<List<MatchRecord>> getMatchesForPost(@PathVariable Long postId) {
-        List<MatchRecord> matches = matchRequestService.getMatchesForPost(postId);
-        return ResponseEntity.ok(matches);
-    }
+    public List<MatchRecordDTO> getMatchesForPost(
+            @PathVariable Long postId,
+            Principal principal
+    ) {
+        String userId = principal.getName();
 
+        List<MatchRecord> matchList =
+                matchRecordRepository.findByLostPost_IdOrFoundPost_Id(postId, postId);
+
+        return matchList.stream().map(match -> {
+            Long chatReqId = matchRequestService.getChatRequestIdForUser(match, userId);
+
+            MatchRecordDTO dto = new MatchRecordDTO(match, chatReqId);
+
+            // 🔥 Add UI fields
+            dto.setDisplayStatus(matchRequestService.getStatusForUser(match, userId));
+
+            // 🔥 Add Chat Room ID
+            Long chatId = chatRoomService.getChatRoomIdForMatch(match.getId());
+            dto.setChatId(chatId);
+
+            return dto;
+        }).toList();
+    }
 }

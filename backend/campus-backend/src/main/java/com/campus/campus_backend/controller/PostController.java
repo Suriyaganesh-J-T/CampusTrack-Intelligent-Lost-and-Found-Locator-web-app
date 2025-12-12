@@ -1,18 +1,13 @@
 package com.campus.campus_backend.controller;
 
-import com.campus.campus_backend.model.Category;
-import com.campus.campus_backend.model.MatchRecord;
-import com.campus.campus_backend.model.Post;
-import com.campus.campus_backend.model.User;
-import com.campus.campus_backend.repository.PostRepository;
-import com.campus.campus_backend.repository.UserRepository;
-import com.campus.campus_backend.service.MatchService;
-import com.campus.campus_backend.repository.MatchRecordRepository;
-
-import org.springframework.beans.factory.annotation.Autowired;
+import com.campus.campus_backend.model.*;
+import com.campus.campus_backend.repository.*;
+import com.campus.campus_backend.security.UserDetailsImpl;
+import com.campus.campus_backend.service.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -29,49 +24,50 @@ public class PostController {
     private final PostRepository postRepository;
     private final UserRepository userRepository;
     private final MatchService matchService;
+    private final MatchRecordRepository matchRecordRepository;
+    private final NotificationService notificationService;
 
     @Value("${app.upload.dir}")
     private String uploadDir;
 
-    @Autowired
-    private MatchRecordRepository matchRecordRepository;
-
-
     public PostController(PostRepository postRepository,
                           UserRepository userRepository,
                           MatchService matchService,
-                          MatchRecordRepository matchRecordRepository) {
+                          MatchRecordRepository matchRecordRepository,
+                          NotificationService notificationService) {
         this.postRepository = postRepository;
         this.userRepository = userRepository;
         this.matchService = matchService;
         this.matchRecordRepository = matchRecordRepository;
+        this.notificationService = notificationService;
     }
 
-
-    // --------------------- CREATE POST ---------------------
     @PostMapping
-    public ResponseEntity<?> createPost(
-            @RequestParam("type") String type,
-            @RequestParam("itemName") String itemName,
-            @RequestParam(value="itemType", required=false) String itemType,
-            @RequestParam(value="itemModel", required=false) String itemModel,
-            @RequestParam(value="place", required=false) String place,
-            @RequestParam(value="dateReported", required=false) String dateReported,
-            @RequestParam(value="image", required=false) MultipartFile image,
-            @RequestParam(value="category", required=false) String category,
-            @RequestParam(value="tags", required=false) String tags
-    ) throws IOException {
+    public ResponseEntity<?> createPost(@RequestParam("type") String type,
+                                        @RequestParam("itemName") String itemName,
+                                        @RequestParam(value = "itemType", required = false) String itemType,
+                                        @RequestParam(value = "itemModel", required = false) String itemModel,
+                                        @RequestParam(value = "place", required = false) String place,
+                                        @RequestParam(value = "dateReported", required = false) String dateReported,
+                                        @RequestParam(value = "image", required = false) MultipartFile image,
+                                        @RequestParam(value = "category", required = false) String category,
+                                        @RequestParam(value = "tags", required = false) String tags) throws IOException {
 
-        // Auth
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated())
+        if (auth == null || !auth.isAuthenticated()) {
             return ResponseEntity.status(401).body("Unauthorized");
+        }
 
-        Optional<User> uOpt = userRepository.findByEmail(auth.getName());
-        if (uOpt.isEmpty())
-            return ResponseEntity.status(401).body("Unauthorized");
+        // 🔥 Fixed User Identity Extraction (Uses USER ID, Not Email)
+        UserDetailsImpl principal = (UserDetailsImpl) auth.getPrincipal();
+        String userId = principal.getUser().getUserId();
 
-        User user = uOpt.get();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (!Boolean.TRUE.equals(user.getIsVerified())) {
+            return ResponseEntity.status(403).body("Account not verified.");
+        }
 
         Post p = new Post();
         p.setUser(user);
@@ -80,18 +76,16 @@ public class PostController {
         p.setItemType(itemType);
         p.setItemModel(itemModel);
         p.setPlace(place);
+        p.setStatus("OPEN");
 
-        // --- Handle ENUM Category ---
         if (category != null && !category.isBlank()) {
             try {
                 p.setCategory(Category.valueOf(category.toUpperCase()));
             } catch (Exception e) {
-                return ResponseEntity.badRequest()
-                        .body("Invalid category. Allowed: " + Arrays.toString(Category.values()));
+                return ResponseEntity.badRequest().body("Invalid category.");
             }
         }
 
-        // --- Save tags (simple CSV string) ---
         if (tags != null) {
             p.setTags(tags.trim().toLowerCase());
         }
@@ -100,35 +94,27 @@ public class PostController {
             p.setDateReported(LocalDate.parse(dateReported));
         }
 
-        // --- Handle image upload ---
-        Path uploadPath = Paths.get(uploadDir);
-        if (!Files.exists(uploadPath)) {
-            Files.createDirectories(uploadPath);
-        }
-
+        // 📌 Save Image Locally
         if (image != null && !image.isEmpty()) {
-            String ext = image.getOriginalFilename().contains(".")
-                    ? image.getOriginalFilename().substring(image.getOriginalFilename().lastIndexOf("."))
-                    : "";
-            String filename = UUID.randomUUID().toString() + ext;
+            Path uploadPath = Paths.get(uploadDir);
+            if (!Files.exists(uploadPath)) Files.createDirectories(uploadPath);
 
-            Files.copy(image.getInputStream(), uploadPath.resolve(filename),
-                    StandardCopyOption.REPLACE_EXISTING);
+            String fileName = UUID.randomUUID() + "_" + image.getOriginalFilename();
+            Path filePath = uploadPath.resolve(fileName);
+            Files.copy(image.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
 
-            p.setImageUrl("/uploads/" + filename);
+            p.setImageUrl("/uploads/" + fileName);
         }
 
         Post saved = postRepository.save(p);
 
-        // Run auto-matching
-        var matches = matchService.findMatches(saved, 5);
-
+        // 🔍 Auto Match System
+        List<Map.Entry<Post, Double>> matches = matchService.findMatches(saved, 5);
         if (!matches.isEmpty()) {
             saved.setLastMatchScore(matches.get(0).getValue());
             saved.setStatus("MATCHED");
             postRepository.save(saved);
 
-            // --- Create MatchRecord entries ---
             for (var entry : matches) {
                 Post matchedPost = entry.getKey();
                 Double score = entry.getValue();
@@ -147,15 +133,12 @@ public class PostController {
                 }
 
                 record.setMatchScore(score);
-                record.setStatus("PENDING"); // initial status
-                matchRecordRepository.save(record);
+                record.setStatus("PENDING");
+                MatchRecord savedRecord = matchRecordRepository.save(record);
 
-                // --- Optional: WebSocket Notification ---
-                // wsService.sendToUser(matchedPost.getUser().getId(), record);
+                notificationService.notifyNewMatch(matchedPost.getUser().getUserId(), savedRecord);
             }
         }
-
-
 
         Map<String, Object> response = new HashMap<>();
         response.put("post", saved);
@@ -164,31 +147,61 @@ public class PostController {
         return ResponseEntity.ok(response);
     }
 
-    // --------------------- SEARCH POSTS ---------------------
-    @GetMapping
-    public List<Post> searchPosts(
-            @RequestParam(value="type", required=false) String type,
-            @RequestParam(value="category", required=false) String category,
-            @RequestParam(value="q", required=false) String q,
-            @RequestParam(value="tags", required=false) String tags
-    ) {
-        Category enumCat = null;
+    @GetMapping("/my-posts")
+    public ResponseEntity<?> getMyPosts() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return ResponseEntity.status(401).body("Unauthorized");
+        }
 
+        UserDetailsImpl principal = (UserDetailsImpl) auth.getPrincipal();
+        String userId = principal.getUser().getUserId();
+
+        List<Post> userPosts = postRepository.findByUser_UserId(userId);
+        return ResponseEntity.ok(userPosts);
+    }
+
+    @GetMapping
+    public List<Post> searchPosts(@RequestParam(value = "type", required = false) String type,
+                                  @RequestParam(value = "category", required = false) String category,
+                                  @RequestParam(value = "q", required = false) String q,
+                                  @RequestParam(value = "tags", required = false) String tags) {
+        Category enumCat = null;
         if (category != null) {
             enumCat = Category.valueOf(category.toUpperCase());
         }
-
-        return postRepository.searchPosts(
-                type != null ? type.toUpperCase() : null,
-                enumCat,
-                q,
-                tags
-        );
+        return postRepository.searchPosts(type != null ? type.toUpperCase() : null, enumCat, q, tags);
     }
 
-    // KEEP THIS OLD ENDPOINT FOR BACKWARD COMPATIBILITY
     @GetMapping("/type/{type}")
     public List<Post> listByType(@PathVariable String type) {
         return postRepository.findByType(type.toUpperCase());
     }
+
+
+    @PostMapping("/recover/{postId}")
+    public ResponseEntity<?> markRecovered(
+            @PathVariable Long postId,
+            @AuthenticationPrincipal UserDetailsImpl userDetails
+    ) {
+        if (userDetails == null) return ResponseEntity.status(401).body("Unauthorized");
+
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new RuntimeException("Post not found"));
+
+        // allow ONLY owner or admin
+        String currentUserId = userDetails.getUser().getUserId();
+        boolean isOwner = post.getUser().getUserId().equals(currentUserId);
+        boolean isAdmin = userDetails.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+
+        if (!isOwner && !isAdmin)
+            return ResponseEntity.status(403).body("Not allowed");
+
+        post.setStatus("RECOVERED");
+        postRepository.save(post);
+
+        return ResponseEntity.ok("Item marked as recovered!");
+    }
+
 }

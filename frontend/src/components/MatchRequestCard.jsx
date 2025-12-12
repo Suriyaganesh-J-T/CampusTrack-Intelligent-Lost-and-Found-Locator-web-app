@@ -1,36 +1,20 @@
-// File: src/components/MatchRequestCard.jsx
 import React from "react";
 
-export default function MatchRequestCard({ request, onAccept, onDecline }) {
-    const userPost = request.lostUser.id === parseInt(localStorage.getItem("userId"))
-        ? request.lostPost
-        : request.foundPost;
-
-    const sender = request.lostUser.id === parseInt(localStorage.getItem("userId"))
-        ? request.foundUser
-        : request.lostUser;
+export default function MatchRequestCard({ request, onAction }) {
+    if (!request) return null;
+    const { id, senderName, receiverName, status, postSummary, createdAt } = request;
 
     return (
-        <div className="request-card border p-3 rounded mb-2 flex justify-between items-center">
+        <div className="bg-white p-4 rounded-xl shadow border flex items-center justify-between">
             <div>
-                <h2 className="font-semibold">{userPost.itemName}</h2>
-                <p>From: {sender.name}</p>
-                <p>Score: {(request.matchScore * 100).toFixed(1)}%</p>
-                <p>Status: {request.status}</p>
+                <div className="font-semibold">From: {senderName} → To: {receiverName}</div>
+                <div className="text-sm text-slate-600">Status: {status}</div>
+                {postSummary && <div className="text-sm text-slate-500 mt-1">{postSummary}</div>}
+                <div className="text-xs text-slate-400">{createdAt ? new Date(createdAt).toLocaleString() : ""}</div>
             </div>
             <div className="flex gap-2">
-                <button
-                    onClick={onAccept}
-                    className="bg-green-500 text-white px-3 py-1 rounded"
-                >
-                    Accept
-                </button>
-                <button
-                    onClick={onDecline}
-                    className="bg-red-500 text-white px-3 py-1 rounded"
-                >
-                    Decline
-                </button>
+                <button onClick={() => onAction(id, "ACCEPTED")} className="px-3 py-1 rounded bg-green-600 text-white">Accept</button>
+                <button onClick={() => onAction(id, "DECLINED")} className="px-3 py-1 rounded bg-red-600 text-white">Decline</button>
             </div>
         </div>
     );

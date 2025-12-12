@@ -1,65 +1,135 @@
-import React from "react";
-import useAuth from "../hooks/useAuth"; // Corrected path assumption
+import React from 'react';
 
-/**
- * Displays a potential match between a lost and found item, allowing the user
- * to send a connection request.
- * * @param {object} match - The match object containing lostPost, foundPost, lostUser, foundUser, and matchScore.
- * @param {function} onSendRequest - Handler function for sending a chat request.
- * @param {number} currentPostId - The ID of the post for which the matches are being displayed.
- */
-export default function MatchCard({ match, onSendRequest, currentPostId }) {
-    const { userId } = useAuth();
+export default function MatchCard({
+                                      matchRecord,
+                                      myPost,
+                                      onSendRequest,
+                                      onApproveMatch,
+                                      onDeclineMatch,
+                                      onOpenChat
+                                  }) {
+    if (!matchRecord || !myPost) return null;
 
-    // Determine if the current user owns the LOST item in this match.
-    // This is required to determine which party (Lost or Found) the card represents.
-    const isUserLostOwner = match.lostPost.id === parseInt(currentPostId);
+    const {
+        id,
+        matchScore,
+        status,
+        displayStatus,
+        chatRoomId,
+        chatId,
+        chatRequestId,
+        lostPostId,
+        lostPostName,
+        lostPostType,
+        lostPostPlace,
+        foundPostId,
+        foundPostName,
+        foundPostType,
+        foundPostPlace,
+        lostUserId,
+        lostUserName,
+        foundUserId,
+        foundUserName
+    } = matchRecord;
 
-    // The post owned by the OTHER user (the match)
-    const matchedPost = isUserLostOwner ? match.foundPost : match.lostPost;
-    const matchedUser = isUserLostOwner ? match.foundUser : match.lostUser;
+    const isMyPostLost = String(myPost.id) === String(lostPostId);
+    const otherPostName = isMyPostLost ? foundPostName : lostPostName;
+    const otherPostType = isMyPostLost ? foundPostType : lostPostType;
+    const otherPostPlace = isMyPostLost ? foundPostPlace : lostPostPlace;
+    const receiverUserId = isMyPostLost ? foundUserId : lostUserId;
+    const receiverUserName = isMyPostLost ? foundUserName : lostUserName;
 
-    const actionText = isUserLostOwner
-        ? "Contact Finder"
-        : "Contact Owner"; // If viewing matches for a Found Post, the match is a Lost Post (Owner)
+    const effectiveStatus = displayStatus || status;
+    const chatRoom = chatRoomId || chatId;
+    const chatAvailable = effectiveStatus === "APPROVED" && chatRoom;
 
-    const typeLabel = isUserLostOwner ? "Found Item" : "Lost Item";
-    const typeColor = isUserLostOwner ? "text-green-600" : "text-red-600";
-    const isRequestSent = match.status === 'REQUEST_SENT' || match.status === 'ACCEPTED'; // Assuming backend handles match status
+    const handleSend = () => {
+        if (!receiverUserId || receiverUserId === myPost.user?.userId) return;
+        onSendRequest(id, null, receiverUserId);
+    };
+
+    const handleApprove = () => {
+        if (!chatRequestId) return;
+        onApproveMatch(chatRequestId);
+    };
+
+    const handleDecline = () => {
+        if (!chatRequestId) return;
+        onDeclineMatch(chatRequestId);
+    };
+
+    const openChat = () => {
+        if (!chatRoom) return;
+        if (onOpenChat) onOpenChat(chatRoom);
+    };
+
 
     return (
-        <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center transition duration-300 hover:shadow-lg">
-            <div className="mb-3 sm:mb-0">
-                <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold uppercase tracking-wider ${typeColor}`}>
-                        {typeLabel}
-                    </span>
-                    <span className="text-xs text-slate-500">
-                        (Match Score: **{(match.matchScore * 100).toFixed(0)}%**)
-                    </span>
+        <div className="bg-white p-5 md:p-6 rounded-xl shadow-lg border-2 border-slate-100 transition duration-300 hover:shadow-xl">
+            <div className="flex justify-between items-start mb-4 border-b pb-3">
+                <h2 className={`text-2xl font-bold ${otherPostType === 'LOST' ? 'text-blue-700' : 'text-green-700'}`}>
+                    {otherPostType === 'LOST' ? 'Potential Lost Match' : 'Potential Found Match'}
+                </h2>
+                <span className="px-3 py-1 text-sm font-semibold rounded-full bg-blue-100 text-blue-800">
+                    {otherPostType}
+                </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-slate-600">
+                <div>
+                    <p className="font-semibold text-sm text-slate-500 mb-1">
+                        Matched Item (Owner: {receiverUserName || 'Unknown'})
+                    </p>
+                    <p className="text-lg font-medium text-slate-800">{otherPostName}</p>
+                    <p className="mt-2 text-sm">
+                        <span className="font-semibold">Location:</span> {otherPostPlace || 'N/A'}
+                    </p>
                 </div>
 
-                <h2 className="text-xl font-bold text-slate-800 mt-1">
-                    {matchedPost.itemName}
-                </h2>
-
-                <p className="text-sm text-slate-600">
-                    Location: {matchedPost.place || 'Not specified'}
-                </p>
-                <p className="text-xs text-slate-500 mt-1">
-                    Posted by: {matchedUser?.name || 'Anonymous User'}
-                </p>
+                <div>
+                    <p className="font-semibold text-sm text-slate-500 mb-1">Your Item</p>
+                    <p className="text-lg font-medium text-slate-800">{myPost.itemName}</p>
+                    <p className="mt-2 text-sm">
+                        <span className="font-semibold">Reported As:</span> {myPost.type}
+                    </p>
+                    <p className="text-sm">
+                        <span className="font-semibold">Your Post ID:</span> {myPost.id}
+                    </p>
+                </div>
             </div>
 
-            <div className="flex-shrink-0">
-                <button
-                    onClick={onSendRequest}
-                    disabled={isRequestSent}
-                    className="w-full sm:w-auto bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-full transition duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed shadow-md"
-                >
-                    {isRequestSent ? "Request Pending" : actionText}
-                </button>
+            <div className="mt-6 pt-4 border-t flex justify-end space-x-3">
+                {effectiveStatus === "REQUEST_SENT" ? (
+                    <>
+                        <button onClick={handleApprove} className="py-2 px-6 rounded-lg font-bold text-white bg-green-500 hover:bg-green-600">
+                            Approve
+                        </button>
+                        <button onClick={handleDecline} className="py-2 px-6 rounded-lg font-bold text-white bg-red-500 hover:bg-red-600">
+                            Decline
+                        </button>
+                    </>
+                ) : effectiveStatus === "APPROVED" ? (
+                    <button
+                        onClick={openChat}
+                        className="py-2 px-6 rounded-lg font-bold text-white bg-green-600 hover:bg-green-700"
+                    >
+                        💬 Open Chat
+                    </button>
+                ) : (
+                    <button
+                        onClick={handleSend}
+                        disabled={receiverUserId === myPost.user?.userId}
+                        className="py-2 px-6 rounded-lg font-bold text-white bg-blue-500 hover:bg-blue-600 disabled:bg-slate-400 disabled:cursor-not-allowed"
+                    >
+                        {receiverUserId === myPost.user?.userId ? "Invalid" : "Send Request"}
+                    </button>
+                )}
             </div>
+
+            <p className="mt-2 text-xs text-slate-400 text-right">
+                Match ID: {id} | Score: {(matchScore * 100).toFixed(1)}%
+            </p>
         </div>
     );
 }
+
